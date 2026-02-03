@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <title>TAA Register</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;500;700&display=swap');
+    body { font-family: 'Sarabun', sans-serif; padding: 20px; background-color: #f8f9fa; text-align: center; }
+    .card { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 400px; margin: 0 auto; }
+    
+    label { display: block; text-align: left; margin-top: 10px; font-weight: bold; color: #555; font-size: 14px;}
+    input { width: 100%; padding: 10px; margin: 5px 0 15px 0; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; box-sizing: border-box; }
+    input:read-only { background-color: #eee; color: #777; cursor: not-allowed; }
+    
+    button { width: 100%; padding: 12px; background-color: #E60000; color: white; border: none; border-radius: 6px; font-size: 18px; font-weight: bold; cursor: pointer; margin-top: 5px; }
+    button:disabled { background-color: #ccc; }
+    
+    .hidden { display: none; }
+    #status-msg { color: #dc3545; margin-top: 10px; font-size: 14px; }
+    #profile-img { width: 70px; height: 70px; border-radius: 50%; border: 3px solid #E60000; margin-bottom: 10px; object-fit: cover;}
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div id="loading-init">กำลังโหลด...</div>
+
+    <div id="step-1" class="hidden">
+      <h3>✈️ ยืนยันตัวตนพนักงาน</h3>
+      <input type="email" id="email" placeholder="name@airasia.com" style="text-align:center;">
+      <button onclick="sendOtp()" id="btn-send">รับรหัสยืนยัน</button>
+    </div>
+
+    <div id="step-2" class="hidden">
+      <h3>🔐 กรอกรหัส OTP</h3>
+      <p style="font-size:14px;">ส่งรหัสไปที่เมลแล้ว</p>
+      <input type="tel" id="otp" placeholder="XXXX" maxlength="4" style="text-align:center; letter-spacing:5px; font-size:20px;">
+      <button onclick="verifyOtp()" id="btn-verify">ตรวจสอบ</button>
+    </div>
+
+    <div id="step-3" class="hidden">
+      <img id="profile-img" src="">
+      <h3 style="margin-bottom:5px;">📝 ข้อมูลพนักงาน</h3>
+      
+      <input type="hidden" id="reg-userid">
+      
+      <label>Email</label>
+      <input type="text" id="reg-email" readonly>
+      
+      <label>ชื่อไลน์ (Name LINE)</label>
+      <input type="text" id="reg-linename" placeholder="ระบุชื่อไลน์ของคุณ">
+
+      <label>รหัสพนักงาน+ชื่อ (ตัวอย่าง: 1234Somchai)</label>
+      <input type="text" id="combined-info" placeholder="ระบุรหัสพนักงานตามด้วยชื่อ">
+      
+      <button onclick="submitRegistration()" id="btn-submit">บันทึกข้อมูล</button>
+    </div>
+
+    <div id="status-msg"></div>
+  </div>
+
+  <script>
+    // ⚠️⚠️ แก้ 2 บรรทัดนี้ ⚠️⚠️
+    const SCRIPT_URL = "https://script.google.com/a/macros/airasia.com/s/AKfycbygh6Vf285Wto2x6bjOlPeyWEd3fE3atIlrzrejWFJY78FEKpbEAtg7lv7ei5tdl4XUtQ/exec"; // เอา URL จาก Apps Script มาใส่ตรงนี้
+    const MY_LIFF_ID = "2009005442-bBJCKEIf"; 
+    
+    let currentUserId = ""; 
+
+    window.onload = async function() {
+      try {
+        await liff.init({ liffId: MY_LIFF_ID });
+        if (!liff.isLoggedIn()) {
+          liff.login();
+        } else {
+          const profile = await liff.getProfile();
+          currentUserId = profile.userId;
+          document.getElementById('profile-img').src = profile.pictureUrl || "https://via.placeholder.com/80";
+          document.getElementById('reg-userid').value = currentUserId;
+          
+          document.getElementById('loading-init').classList.add('hidden');
+          document.getElementById('step-1').classList.remove('hidden');
+        }
+      } catch (err) {
+        alert("LIFF Error: " + err);
+      }
+    };
+
+    // ฟังก์ชันยิง API ไปหา Google Apps Script
+    async function callApi(action, payload) {
+      payload.action = action; // บอก Server ว่าจะทำอะไร
+      
+      const response = await fetch(SCRIPT_URL, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+        // ไม่ต้องใส่ headers Content-Type เพื่อเลี่ยง Pre-flight check (CORS Simple Request)
+      });
+      return await response.json();
+    }
+
+    function sendOtp() {
+      var email = document.getElementById('email').value.trim();
+      if(!email) return;
+      setLoading(true, 'btn-send');
+      
+      callApi("send_otp", { email: email })
+        .then(res => {
+           setLoading(false, 'btn-send', 'รับรหัสยืนยัน');
+           if(res.status == 'success'){
+             document.getElementById('step-1').classList.add('hidden');
+             document.getElementById('step-2').classList.remove('hidden');
+             document.getElementById('status-msg').innerText = "";
+           } else {
+             document.getElementById('status-msg').innerText = "❌ " + res.msg;
+           }
+        });
+    }
+
+    function verifyOtp() {
+      var email = document.getElementById('email').value.trim();
+      var otp = document.getElementById('otp').value.trim();
+      setLoading(true, 'btn-verify');
+
+      callApi("verify_otp", { email: email, otp: otp })
+        .then(res => {
+           setLoading(false, 'btn-verify', 'ตรวจสอบ');
+           if(res.status == 'success'){
+             document.getElementById('step-2').classList.add('hidden');
+             document.getElementById('step-3').classList.remove('hidden');
+             document.getElementById('reg-email').value = email;
+             document.getElementById('status-msg').innerText = "";
+           } else {
+             document.getElementById('status-msg').innerText = "❌ " + res.msg;
+           }
+        });
+    }
+
+    function submitRegistration() {
+      var combinedInfo = document.getElementById('combined-info').value.trim();
+      var manualLineName = document.getElementById('reg-linename').value.trim();
+      
+      if(!combinedInfo || !manualLineName) {
+        alert("กรุณากรอกข้อมูลให้ครบ"); return;
+      }
+      
+      setLoading(true, 'btn-submit', 'กำลังบันทึก...');
+
+      var data = {
+        userId: currentUserId,
+        email: document.getElementById('reg-email').value,
+        combinedInfo: combinedInfo, 
+        lineName: manualLineName 
+      };
+
+      callApi("register", data)
+        .then(res => {
+           if(res.status == 'success'){
+              document.querySelector('.card').innerHTML = `
+               <div style="margin:40px 0;">
+                 <h1 style="color:#28a745;">✅</h1>
+                 <h3>บันทึกเรียบร้อย!</h3>
+                 <p>ปิดหน้านี้ได้เลยครับ</p>
+               </div>`;
+              setTimeout(() => { liff.closeWindow(); }, 3000);
+           } else {
+              setLoading(false, 'btn-submit', 'บันทึกข้อมูล');
+              document.getElementById('status-msg').innerText = "❌ " + res.msg;
+           }
+        });
+    }
+
+    function setLoading(isLoading, btnId, text) {
+      var btn = document.getElementById(btnId);
+      if(isLoading) {
+        btn.innerText = "⏳ รอสักครู่...";
+        btn.disabled = true;
+      } else {
+        btn.innerText = text;
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
